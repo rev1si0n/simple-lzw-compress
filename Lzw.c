@@ -1,16 +1,16 @@
 
 /*
-	Code by ����һֻ�����.2015.10.12
-	lzw �㷨ʵ��
+	Code by zhangYiDa.2015.10.12
+	lzw 算法实现
 	compiled success with CL version:12.0
-	��windows��ʹ��CL.EXE ����ɹ�
+	在windows下使用CL.EXE 编译成功
 */
 #include <stdio.h>
 #include <malloc.h>
 #include <windows.h>
 #include <string.h>
 
-//===================���ֳ���������============================
+//===================部分常量及定义============================
 	#define UBIT8      unsigned char
 	#define UBIT32	   unsigned int
 	#define UBIT16	   unsigned short
@@ -23,23 +23,23 @@
 	#define NoPrefix     (-1)
 	//#define NewTab       (256)
 	#define TheEnd       (257)
-//===================== �ṹ�� ===============================
+//===================== 结构体 ===============================
 	typedef struct
 	{
-		VOID  *LPIn;      //��ȡλ��ָ�룬������
-		VOID  *LPOut;     //д��λ��ָ�룬������
-		UBIT32 InSetPos;     // ��ȡ��ʼ��ַ��ͬ��
-		UBIT32 OutSetPos;    // д����ʼ��ַ ��������ָ�����������д���ֽ���
-		UBIT32 InEndPos;  //��ȡ����λ��ָ�룬������LPIn�Ƚϣ����������ȡ���
-		UBIT32 RawSize;   //��ѹ�����ݵ�ԭʼ��С
-		UBIT32 TMPBIT32;  //32λ�������ʱ�洢λ�ã�����32λ��д�뻺��
-		UBIT32 UsedBits;  //����32λ����ʹ�õ�λ��
+		VOID  *LPIn;      //读取位置指针，会自增
+		VOID  *LPOut;     //写入位置指针，会自增
+		UBIT32 InSetPos;     // 读取起始地址，同下
+		UBIT32 OutSetPos;    // 写入起始地址 ，这两个指针用来计算读写的字节数
+		UBIT32 InEndPos;  //读取结束位置指针，用来和LPIn比较，如果相等则读取完毕
+		UBIT32 RawSize;   //待压缩数据的原始大小
+		UBIT32 TMPBIT32;  //32位编码的临时存储位置，存满32位后将写入缓存
+		UBIT32 UsedBits;  //代表32位中已使用的位数
 	}	LZWIO; 
 
 	typedef struct
 	{
-		UBIT32 Prefix;  //�ִ�ǰ׺��ǰ��������
-		UBIT8  Suffix;  //�ִ���׺
+		UBIT32 Prefix;  //字串前缀（前项索引）
+		UBIT8  Suffix;  //字串后缀
 	} TABLE;
 
 	typedef struct
@@ -49,12 +49,12 @@
 		VOID *MapMem;
 	} MAP;
 
-//=====================ȫ�ֱ���(����)==============================
-	LZWIO IO; 				  //IO�ṹ
-	TABLE  Stack[STACKMAX];   //��ջ
-	UBIT32 StackTop;		  //ջ��λ��
+//=====================全局变量(必须)==============================
+	LZWIO IO; 				  //IO结构
+	TABLE  Stack[STACKMAX];   //堆栈
+	UBIT32 StackTop;		  //栈顶位置
 //==============================================================
-//IO��غ���
+//IO相关函数
 	VOID     LZWIniIO(VOID*,VOID*,UBIT32);
 	VOID     IOEndFile();
 	VOID     LZWIniZero(VOID*,UBIT32);
@@ -62,7 +62,7 @@
 	UBIT8    LZWGetByte();
 	VOID     LZWWrite(UBIT32);
 	UBIT32   LZWPickCode();
-//��ջ��غ���
+//堆栈相关函数
 	#define STACKMAX     (4096)
 	#define StackIsMax   (256)
 	#define StackSet     (258)
@@ -73,11 +73,11 @@
 	UBIT32   LZWStackPush(UBIT32,UBIT32);
 	UBIT32   LZWStackQuery(UBIT32,UBIT32);
 	VOID     PrintStack(UBIT32,UBIT32);
-//ѹ����ѹ����
+//压缩解压函数
 	UBIT32   LZWDeflate(VOID*,VOID*,UBIT32);
 	UBIT32   LZWInflate(VOID*,VOID*,UBIT32);
 //---------------------------------------------------------------------------------------------------
-//���²���Ϊ����Ҫ���룬��Ҫ��Ϊ�˴ճ�һ�������ĳ���
+//以下部分为非主要代码，主要是为了凑成一个完整的程序
 	VOID     PrintUsage();
 	VOID     PrintCopyRight();
     UBIT32   CheckCommand(UBIT8*);
@@ -190,7 +190,7 @@ VOID ReleaseMap(MAP *M)
 
 VOID PrintCopyRight()
 {
-	printf("\nLzw ѹ������ By YiDa.Zhang, Achieved With C & LZW Algorithm.(C) Lemple-Ziv-Welch \n");
+	printf("\nLzw 压缩程序 By YiDa.Zhang, Achieved With C & LZW Algorithm.(C) Lemple-Ziv-Welch \n");
 }
 VOID PrintUsage()
 {
@@ -199,7 +199,7 @@ VOID PrintUsage()
 	exit(1);
 }
 //---------------------------------------------------------------------------------------------------
-//��������Ҫʵ�ִ���
+//以下是主要实现代码
 UBIT32 LZWInflate(VOID*Src,VOID*Dst,UBIT32 Size)
 {  
 	UBIT32 Prefix,Suffix;
@@ -207,7 +207,7 @@ UBIT32 LZWInflate(VOID*Src,VOID*Dst,UBIT32 Size)
 	LZWIniIO(Src,Dst,Size);
 	if(!IsValidFile()) return 0;
 	LZWIniStack(True);
-//��Ҫ���벿��
+//主要代码部分
 	Prefix = LZWPickCode();
 	ProcessChain(Prefix,True);
 	Suffix = Prefix;
@@ -217,7 +217,7 @@ UBIT32 LZWInflate(VOID*Src,VOID*Dst,UBIT32 Size)
 		if(Temp == TheEnd) break;
 		if(Temp == StackIsMax)
 		{
-			putchar('|');   //��CONSOLE��ӡһ��|ģ�����
+			putchar('|');   //在CONSOLE打印一个|模拟进度
 			LZWIniStack(False);
 			Prefix = LZWPickCode();
 			ProcessChain(Prefix,True);
@@ -246,16 +246,16 @@ UBIT32 LZWDeflate(VOID*Src,VOID*Dst,UBIT32 Size)
 	{ 
 		Suffix = LZWGetByte();
 		if((Index=LZWStackQuery(Prefix,Suffix))==False) 
-		{   //�����ڶ�ջ����
+		{   //这个项不在堆栈中吗？
 			LZWWrite(Prefix);
 			//printf("StackPosition=%5d   Code =%6d\n",StackTop,Prefix); //
 		    if(LZWStackPush(Prefix,Suffix)==StackIsMax)
-		    {   //��ջ������������ˣ�ģ��տ�ʼ��״����
+		    {   //堆栈满了吗？如果满了，模拟刚开始的状况。
 			    //printf("---------------- Table %9d  ---------------\n",COUNT+=1);//
 			    putchar('|');
 		    	LZWIniStack(False);
 		    	LZWWrite(StackIsMax);
-		    	//��Ϊ��һ��Suffixû���õ�����Prefix������һ����
+		    	//因为上一个Suffix没有用掉，而Prefix属于上一个表
 		    	Prefix = Suffix;
 		    	continue;
 		    }
@@ -264,16 +264,16 @@ UBIT32 LZWDeflate(VOID*Src,VOID*Dst,UBIT32 Size)
 		}
 		Prefix = Index;
 	}
-	LZWWrite(Prefix);   //�������ʣ�µ�Prefix
-	IOEndFile();		//�����ļ�����
-	//���ػ��������ֽ���
+	LZWWrite(Prefix);   //处理最后剩下的Prefix
+	IOEndFile();		//设置文件结束
+	//返回缓冲区的字节数
 	return ((UBIT32)IO.LPOut - IO.OutSetPos);
 }
 
 VOID IOEndFile()
-{   //д�������ǣ����ڲ���12λ����
-	//��Ҫ����32λ�Ż�д���ļ�����
-	//���������д�˼����������
+{   //写入结束标记，由于采用12位缓存
+	//需要凑满32位才会写入文件缓存
+	//所以这里多写了几个结束标记
 	#define EDSign (0x4445)
 	#define DTSize (IO.RawSize)
 	LZWWrite(TheEnd);
@@ -284,7 +284,7 @@ VOID IOEndFile()
 	*(((UBIT32*)IO.LPOut)++) = DTSize;
 }
 UBIT32 IsValidFile()
-{   //����ѹ�������Ƿ�Ϸ�
+{   //检测解压缩数据是否合法
 	// BB BBBB
 	return (*(UBIT16*)((UBIT8*)IO.InEndPos-6)\
 			== EDSign)?True:False;
@@ -302,7 +302,7 @@ UBIT32 IsValidFile()
 	
 UBIT32 LZWStackPush(UBIT32 Prefix,UBIT32 Suffix)
 {
-	//��һ��Prefix��Suffixѹ��ջ��
+	//将一个Prefix和Suffix压入栈中
 	if(StackTop!=STACKMAX) 
 	{	
 		Stack[StackTop].Prefix =  Prefix;
@@ -312,7 +312,7 @@ UBIT32 LZWStackPush(UBIT32 Prefix,UBIT32 Suffix)
 	return StackIsMax;
 }
 VOID LZWIniIO(VOID*Src,VOID*Dst,UBIT32 Size)
-{	//��ʼ��IO�ṹ
+{	//初始化IO结构
 	IO.LPIn      = Src;
 	IO.LPOut     = Dst;
 	IO.InSetPos  = (UBIT32)Src;
@@ -325,21 +325,21 @@ VOID LZWIniIO(VOID*Src,VOID*Dst,UBIT32 Size)
 
 VOID LZWIniStack(UBIT32 IsFirstIni)
 {
-	//����ǵڶ��γ�ʼ������ôû��Ҫ�ٴγ�ʼ��ǰ256��
+	//如果是第二次初始化表那么没必要再次初始化前256项
 	UBIT32  Index; 
 	if(IsFirstIni)
-	{  //����һ��������ǰ׺�ĳ�������Ϊ��������г�������0
-	   //Ҳ���ǵ�Prefix=Suffix=0������Ϊ���ǲ�����ջ����
-	   //�����������Ļ�������᷵����ջ�У�����㶮��
+	{  //定义一个代表无前缀的常量，因为如果数据中出现两个0
+	   //也就是当Prefix=Suffix=0，你认为它是不是在栈中呢
+	   //如果不加这个的话，程序会返回在栈中，结果你懂的
 		Index = 0;
 		while(Index!=StackSet) LZWStackPush(NoPrefix,Index++);
 	}
-	//256��257�Ǳ�������������Ҫ����һ�ʼ
+	//256，257是保留数，所以需要从下一项开始
 	StackTop = StackSet;
 }
 
 VOID PrintStack(UBIT32 StartPos,UBIT32 StopPos)
-{	//�������һ����ӡ��ջ�ĵ��Ժ�����ɾ��Ҳ�޷�
+{	//这仅仅是一个打印堆栈的调试函数，删除也无妨
 	HANDLE Console =GetStdHandle(STD_OUTPUT_HANDLE);
 	static UBIT32 PrintCount = 0;
 	printf("\n--------------------- %6d St Print  ------------------------\n",++PrintCount);
@@ -354,7 +354,7 @@ VOID PrintStack(UBIT32 StartPos,UBIT32 StopPos)
 
 UBIT32 LZWStackPush(UBIT32 Prefix,UBIT32 Suffix)
 {
-	//��һ��Prefix��Suffixѹ��ջ��
+	//将一个Prefix和Suffix压入栈中
 	if(StackTop!=STACKMAX) 
 	{	
 		Stack[StackTop].Prefix =  Prefix;
@@ -366,18 +366,18 @@ UBIT32 LZWStackPush(UBIT32 Prefix,UBIT32 Suffix)
 
 UBIT32 LZWStackQuery(UBIT32 Prefix,UBIT8 Suffix)
 {  
-	//����Prefix��Suffix�Ƿ���ջ�У�����ڷ�������,���ڷ���False
+	//查找Prefix和Suffix是否在栈中，如果在返回索引,不在返回False
 	UBIT32 Index;
 	/*for(Index=StackTop-1;Index!=Prefix;Index--)
-	{   //���ѭ������̫���ˣ��ѱ���������Ȼ��𲻴󣬵��ٶȡ�����
+	{   //这个循环方法太慢了，已被抛弃，虽然差别不大，但速度。。。
 		if((Stack[Index].Prefix==Prefix)&&\
 		   (Stack[Index].Suffix==Suffix))
 		    return Index;
 	}*/
 	/*
-		���ѭ����ܶ࣬����ʱ�����ٶ�ʵ��̫���ˣ�һ��4M���ļ�����10�룩
-		�Ͱ�ÿ��������������һ�Σ�����ʱ����Ҫ���������Query���ˣ���ô
-		�Ķ�û�ã���������һ�¿�ʼѭ�������Բۣ��������û��Ӧ����!
+		这个循环快很多，运行时发现速度实在太慢了（一个4M的文件用了10秒）
+		就把每个函数单独运行一次，发现时间主要都耗在这个Query上了，怎么
+		改都没用，后来改了一下开始循环方向，卧槽，快的让我没反应过来!
 	*/
 	for(Index=Prefix;Index!=StackTop;Index++)
 	{	
@@ -423,13 +423,13 @@ VOID LZWIniZero(VOID*dest,UBIT32 nCount)
 
 UBIT8 LZWGetByte()
 {
-	//��IO.LPInָ���λ�ö�ȡһ���ֽڲ�����ָ��
+	//从IO.LPIn指向的位置读取一个字节并递增指针
 	return *(((UBIT8*)IO.LPIn)++);
 }
 
 UBIT32 LZWGetDword()
 {
-	//��IO.LPInָ���λ�ö�ȡһ��˫�ֲ�����ָ��
+	//从IO.LPIn指向的位置读取一个双字并递增指针
 	return *(((UBIT32*)IO.LPIn)++);
 }
 
@@ -461,18 +461,18 @@ VOID LZWWrite(UBIT32 BIT16)
 }
 
 UBIT32 LZWPickCode()
-{ 	//��������ҵ��Ҷ����뿴�ˣ�ԭ����д������һ����
-	//���Ƕ����ĸ��ֽڵı��룬ÿ�δ�����ȡ12λ�����ĸ�
-	//�ֽڣ�32λ�����ʣ��λ������ȡʱ���������ĸ��ֽ�
-	//�����ĸ���ǰ���ʣ�������Ϸ��ر��롣
+{ 	//这个代码乱的我都不想看了，原理和写编码是一样的
+	//就是读入四个字节的编码，每次从中提取12位，当四个
+	//字节（32位）里的剩余位不够提取时，读入下四个字节
+	//把这四个和前面的剩余编码组合返回编码。
 	UBIT32 UsedBits  = IO.UsedBits;
 	UBIT32 Bit12Code = IO.TMPBIT32;
 	UBIT32 Bit32Temp;
 	if(UsedBits<12)
-	{  //������ʣ���λ������12λ���������ĸ��ֽ�
+	{  //缓存里剩余的位数低于12位，读入下四个字节
 		Bit32Temp =LZWGetDword();
 		if(!UsedBits)
-		{ 	//���治������
+		{ 	//下面不解释了
 			Bit12Code=(Bit32Temp>>20);
 			Bit32Temp<<=12;
 			UsedBits=20;
